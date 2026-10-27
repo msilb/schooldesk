@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+.data
+private
+.env*
+package-lock.json
+public/*.png
+docs/screenshots
+demo-dist

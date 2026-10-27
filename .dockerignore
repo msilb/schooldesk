@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+.env*
+.data
+private
+tests
+docs/screenshots
+*.db*
+*.sqlite*
+*.log
+*.tsbuildinfo
+.vercel
+demo-dist
