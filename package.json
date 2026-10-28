@@ -25,7 +25,8 @@
     "test:http": "tsx scripts/smoke.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "build:demo": "node scripts/build-demo.mjs"
+    "build:demo": "node scripts/build-demo.mjs",
+    "check:history": "tsx scripts/check-release.ts --history"
   },
   "dependencies": {
     "better-auth": "1.7.14",

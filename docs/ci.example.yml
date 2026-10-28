@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -16,6 +18,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run check:release
+      - run: npm run check:history
       - run: npm audit --omit=dev
       - run: npm run build
       - run: npm run test:http

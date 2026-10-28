@@ -1,49 +1,68 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, lstatSync } from 'node:fs';
+import { existsSync, readFileSync, lstatSync } from 'node:fs';
+import { TextDecoder } from 'node:util';
+import { binaryFinding, contentFindings, privateReleasePath } from '../lib/release-audit';
+import reviewed from './reviewed-public-assets.json';
 
-// Check the exact tracked/staged release, not ignored local databases. This
-// complements manual review; no scanner can prove that all content is public.
-const files = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' })
-  .split('\0')
-  .filter(Boolean);
+const git = (...args: string[]) => execFileSync('git', args, { maxBuffer: 32 * 1024 * 1024 });
+const files = git('ls-files', '-z').toString().split('\0').filter(Boolean);
 if (!files.length) throw new Error('Stage the intended release before running this check.');
-const forbiddenPath =
-  /(?:^|\/)(?:\.env(?!\.example$)|\.data|private|\.openai|\.vercel|node_modules|\.next|family|catalog|source-archive)(?:\/|$)|\.(?:db|sqlite|sqlite3|pdf|eml|heic|mov|mp4|webm|zip|tar|gz)(?:$|[-.])/i;
-const findings: string[] = [];
-for (const file of files) {
-  if (forbiddenPath.test(file)) findings.push('Private/runtime path: ' + file);
-  if (lstatSync(file).isSymbolicLink()) findings.push('Symlink: ' + file);
-  if (/\.(?:png|webp)$/.test(file)) {
-    if (
-      !/^public\/(?:apple-touch-icon|icon-192|icon-512)\.png$|^docs\/screenshots\/demo-(?:desktop|phone)\.png$/.test(
-        file,
-      )
-    )
-      findings.push('Unreviewed binary asset: ' + file);
-    continue;
+const policyPath = process.env.SCHOOLDESK_PRIVACY_DENYLIST;
+const literals: string[] = policyPath ? JSON.parse(readFileSync(policyPath, 'utf8')) : [];
+if (!Array.isArray(literals) || literals.some((value) => typeof value !== 'string'))
+  throw new Error('The external privacy denylist must be an array of strings.');
+const findings = new Set<string>(),
+  inspected = new Set<string>();
+function inspect(path: string, bytes: Buffer, scope: string) {
+  if (privateReleasePath(path)) findings.add(`${scope}: private/runtime path: ${path}`);
+  const signature = scope + ':' + path + ':' + bytes.toString('base64');
+  if (inspected.has(signature)) return;
+  inspected.add(signature);
+  if (/\.(?:png|jpe?g|webp)$/i.test(path)) {
+    const issue = binaryFinding(path, bytes, reviewed);
+    if (issue) findings.add(`${scope}: ${issue}: ${path}`);
+    return;
   }
-  const text = readFileSync(file, 'utf8');
-  const patterns = [
-    /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
-    /\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-(?:proj-)?[A-Za-z0-9_-]{30,})\b/,
-    /https?:\/\/[^\s"'<>]+[?&](?:X-Amz-Signature|X-Amz-Credential|access_token|refresh_token)=/i,
-    /appgprj_[a-f0-9]{16,}|Automation_[a-f0-9]{16,}/,
-    /ns:\d+\/\//,
-    /\b(?:BETTER_AUTH_SECRET|SCHOOLDESK_SYNC_TOKEN|DATABASE_URL)\s*=\s*["']?[A-Za-z0-9/+_.-]{24,}/,
-  ];
-  for (const pattern of patterns)
-    if (pattern.test(text))
-      findings.push('Possible secret or private deployment identifier: ' + file);
-  if (
-    !['scripts/check-release.ts'].includes(file) &&
-    /\/Users\/|\/var\/folders\/|codex-remote-attachments|\.chatgpt\.site/.test(text)
-  )
-    findings.push('Local/private environment reference: ' + file);
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    findings.add(`${scope}: unexpected binary file: ${path}`);
+    return;
+  }
+  for (const issue of contentFindings(text, literals)) findings.add(`${scope}: ${issue}: ${path}`);
 }
-if (findings.length) {
-  console.error([...new Set(findings)].join('\n'));
+for (const file of files) {
+  if (existsSync(file)) {
+    if (lstatSync(file).isSymbolicLink()) findings.add('Working tree: symlink: ' + file);
+    else inspect(file, readFileSync(file), 'Working tree');
+  }
+  try {
+    inspect(file, git('show', ':' + file), 'Staged index');
+  } catch {
+    findings.add('Cannot inspect staged file: ' + file);
+  }
+}
+let commits = 0;
+if (process.argv.includes('--history')) {
+  const objects = git('rev-list', '--all', '--objects').toString().trim().split('\n');
+  for (const row of objects) {
+    const space = row.indexOf(' '),
+      sha = space < 0 ? row : row.slice(0, space);
+    if (!sha || git('cat-file', '-t', sha).toString().trim() !== 'blob') continue;
+    inspect(row.slice(space + 1), git('cat-file', 'blob', sha), 'Git history');
+  }
+  const metadata = git('log', '--all', '--format=%H %an <%ae> %cn <%ce>%n%B').toString();
+  commits = Number(git('rev-list', '--all', '--count').toString().trim());
+  for (const issue of contentFindings(metadata, literals))
+    findings.add('Commit metadata: ' + issue);
+}
+if (findings.size) {
+  // Print locations and rule names only, never matched private values.
+  console.error([...findings].join('\n'));
   process.exitCode = 1;
-} else
+} else {
   console.log(
-    `Release check passed: ${files.length} tracked files; no forbidden runtime paths, recognised secrets or private deployment identifiers.`,
+    `Release privacy check passed: ${files.length} tracked files, working tree and staged index${commits ? ', ' + commits + ' commits across all local refs' : ''}; reviewed binary hashes match.`,
   );
+}
