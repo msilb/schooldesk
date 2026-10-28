@@ -26,8 +26,8 @@ Open **http://localhost:3210**. All names, school information, dates and
 illustrations are fictional. Demo notes stay in your browser. The public demo
 cannot read or write a private database, accept uploads, or create accounts.
 
-The hosted demo is a static GitHub Pages build of the same dashboard components.
-It has no server, database or school connection. `npm run build:demo` generates
+The same dashboard components can be built as an optional static preview.
+That fictional preview has no server, database or school connection. `npm run build:demo` generates
 that fictional preview in the ignored `demo-dist/` directory. GitHub Pages is
 only suitable for this public demo, never a real family’s private dashboard.
 
