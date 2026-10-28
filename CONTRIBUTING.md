@@ -30,6 +30,7 @@ By contributing, you agree to license your contributions under the MIT licence.
 
 To enable automated GitHub checks, copy `docs/ci.example.yml` into
 `.github/workflows/ci.yml` using a GitHub login/token permitted to manage
-workflows. The template also deploys the fictional demo when GitHub Pages is
-configured for Actions. The initial repository release uses branch-based Pages
-publishing and does not require a workflow-enabled token.
+workflows. The template runs checks and builds the fictional demo, but never
+publishes it. Hosting is a separate, explicit choice. Do not automatically
+republish a retired preview: personal-account Pages sites may inherit a
+personal website domain.
